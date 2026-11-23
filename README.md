@@ -7,8 +7,14 @@
 | 谁用 | 入口 |
 |---|---|
 | 人看 | 打开 `index.html`（原始卡片页，可复制码/提示词） |
-| AI 检索 | 从 `INDEX.md` 开始，里面写了检索协议与路由表 |
-| AI 技能 | `SKILL.md` 可直接注册为 skill，按需加载 `categories/` 与 `entries/` |
+| AI 检索（`mj-code-library`） | 从根目录 `SKILL.md` / `INDEX.md` 开始，按需加载 `categories/` 与 `entries/` |
+| AI 生图闭环（`mj-imagine`） | [`mj-imagine/SKILL.md`](mj-imagine/SKILL.md)：联动本码图库 + `--v 8.2` 提示词规范 + [`mj-imagine/scripts/mj.mjs`](mj-imagine/scripts/mj.mjs) 一键调 `mj-proxy` 生图与合成 2×2 编号选片卡 |
+
+### 一键软链注册两个 Skill
+
+```bash
+bash install_skills.sh
+```
 
 ### 三级索引
 
