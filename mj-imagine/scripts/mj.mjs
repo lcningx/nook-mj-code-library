@@ -339,19 +339,25 @@ async function materializeTaskOutputs(cfg, task, outRoot) {
   fs.writeFileSync(path.join(taskDir, "task.json"), JSON.stringify(task, null, 2));
 
   const savedImages = [];
+  const hasUpscaleButtons =
+    Array.isArray(task.buttons) &&
+    task.buttons.some((b) => String(b?.label || "").toUpperCase() === "U1");
   const isFourGridTask =
-    Array.isArray(task.imageUrls) &&
-    task.imageUrls.length === 4 &&
     task.action !== "UPSCALE" &&
-    task.action !== "UPSCALE_HD";
+    task.action !== "UPSCALE_HD" &&
+    ((Array.isArray(task.imageUrls) && task.imageUrls.length === 4) ||
+      (Boolean(task.imageUrl) && hasUpscaleButtons));
 
   // Prefer downloading local/proxied merged grid (task.imageUrl) and splitting into 1..4
-  // when imageUrls point to Cloudflare-protected cdn.midjourney.com
-  const hasCdnUrls =
+  // for Discord 2x2 grids or when imageUrls point to Cloudflare-protected cdn.midjourney.com
+  const shouldSplitMergedGrid =
     isFourGridTask &&
-    task.imageUrls.some((x) => /cdn\.midjourney\.com/i.test(String(x?.url || "")));
+    Boolean(task.imageUrl) &&
+    (!Array.isArray(task.imageUrls) ||
+      task.imageUrls.length !== 4 ||
+      task.imageUrls.some((x) => /cdn\.midjourney\.com/i.test(String(x?.url || ""))));
 
-  if (isFourGridTask && hasCdnUrls && task.imageUrl) {
+  if (shouldSplitMergedGrid) {
     const ext = path.extname(new URL(task.imageUrl, "https://example.com").pathname) || ".webp";
     const mergedPath = path.join(taskDir, `merged_raw${ext}`);
     await downloadFile(cfg, task.imageUrl, mergedPath);
