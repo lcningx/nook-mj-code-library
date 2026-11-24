@@ -37,12 +37,13 @@
 
 ---
 
-## 3. 角色一致性与局部改图（V8.2 Unified Edit 范式）
+## 3. 角色一致性与局部改图（Discord 渠道 & 官网渠道双兼容范式）
 
 在 V8.2 中，**不要再使用 `--cref` 或 `--oref`**（会触发引擎降级回退 V7）：
-1. **对已生成的某张单图改衣服、换背景、改光影、加减物品**：
-   直接将该单图（如 `2.png`）传给 `mj.mjs edit --image <path> --prompt "<英文自然语言修改指令>"`。
-2. **保持原图几何轮廓只换材质/画风**：
-   使用 `mj.mjs edit --mode retexture --image <path> --prompt "<目标材质与风格描述>"`。
-3. **多参考图构图引导**：
-   使用 `mj.mjs imagine --ref <图1> [--ref <图2>] --prompt "<V8.2 提示词>"`。
+1. **对上一轮刚生成的图改衣服、换背景、改光影（Discord 渠道首选）**：
+   直接调用 `mj.mjs action --task <父任务ID> --pick V1~V4 --prompt "<修改后的完整 V8.2 提示词>"`（开启 Remix Mode 后，`mj.mjs` 会自动处理 `code: 21` 弹窗提交新提示词，锁定原构图微调）。
+2. **对本地单图或外部参考图做重绘改图 / 换材质**：
+   调用 `mj.mjs edit --image <path> --prompt "<修改后的目标画面完整 V8.2 描述>" [--mode edit|retexture]`（若接入了官网账号走原生 `/edit`；在纯 Discord 渠道下，`mj.mjs` 会自动无感切换为高权重垫图引导 `--iw 1.5` / `--iw 2.0` + `--v 8.2`，不会报“无可用实例”）。
+3. **风格参考图（`--sref`）与构图垫图（`--ref`）**：
+   - 本地风格参考图：`mj.mjs imagine --sref ./style.jpg --prompt "<V8.2 提示词>"`（自动上传至 Discord CDN 换取 HTTPS 链接拼入 `--sref`）；
+   - 本地构图参考图：`mj.mjs imagine --ref ./pose.png --prompt "<V8.2 提示词>"`。

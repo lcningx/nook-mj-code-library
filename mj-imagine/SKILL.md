@@ -60,25 +60,26 @@ V8.2 以 **`--profile` 个性化美学驱动 + 简洁自然语言叙事** 为核
 # 0. 环境与账号健康/剩余额度自检
 node <SKILL_DIR>/scripts/mj.mjs check
 
-# 1. 文生图 / 垫图参考（自动锁定 --v 8.2，下载 4 张单图并合成带 1/2/3/4 编号的 2×2 选片卡）
+# 1. 文生图 / 垫图参考 / 风格图参考（自动锁定 --v 8.2，失效旧 profile 子码自动剥离重试，合成带 1/2/3/4 编号的 2×2 选片卡）
 node <SKILL_DIR>/scripts/mj.mjs imagine \
   --prompt "<V8.2 英文提示词> --ar 16:9 --s 200 --profile 2q4zxma --v 8.2" \
-  [--ref ./ref1.png --ref https://.../ref2.jpg] \
+  [--ref ./ref1.png] \
+  [--sref ./style_ref.jpg] \
   [--count 1] \
   [--speed auto|fast|relax|turbo] \
   --out ./mj-outputs
 
-# 2. 选图放大 / 变体 / 重绘（支持 U1~U4、V1~V4、reroll 简写，自动处理 Remix 弹窗）
+# 2. 选图放大 / Remix 改词变体 / 重绘（支持 U1~U4、V1~V4、reroll 简写；Discord 渠道对已生图改衣/改景优先用 V1~V4 + --prompt）
 node <SKILL_DIR>/scripts/mj.mjs action \
   --task "<父任务ID>" \
-  --pick U2 \
-  [--prompt "<微调时的新提示词>"] \
+  --pick V2 \
+  [--prompt "<修改后的完整 V8.2 英文提示词>"] \
   --out ./mj-outputs
 
-# 3. V8.2 原生 Edit 对话改图 / Retexture 材质重绘（替代旧版 cref/oref）
+# 3. 图像引导改图 / 材质重绘（官网账号走原生 /edit，纯 Discord 账号自动无感降级为高权重垫图 --iw 1.5/2.0 --v 8.2 重绘）
 node <SKILL_DIR>/scripts/mj.mjs edit \
   --image ./mj-outputs/<taskId>/2.png \
-  --prompt "Change the cloak fabric to dark weathered leather and add light rain" \
+  --prompt "<修改后的目标画面完整 V8.2 英文描述>" \
   [--mode edit|retexture] \
   --out ./mj-outputs
 

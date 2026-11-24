@@ -459,7 +459,56 @@ async function cmdCheck(cfg) {
   );
 }
 
-async function runSingleImagine(cfg, prompt, refs, speedPrefix, outRoot) {
+function stripInvalidProfileCodes(prompt, badCodes) {
+  const badSet = new Set(badCodes.map((c) => c.toLowerCase()));
+  let emptied = false;
+  const next = prompt.replace(
+    /--(?:profile|p)\s+([^-]+?)(?=\s+--|$)/gi,
+    (_full, codesStr) => {
+      const kept = codesStr
+        .trim()
+        .split(/\s+/)
+        .filter((c) => c && !badSet.has(c.toLowerCase()));
+      if (kept.length === 0) {
+        emptied = true;
+        return "";
+      }
+      return `--profile ${kept.join(" ")}`;
+    },
+  );
+  return { prompt: next.replace(/\s+/g, " ").trim(), emptied };
+}
+
+async function uploadToDiscordUrls(cfg, inputs) {
+  const urls = [];
+  const localDataUrls = [];
+  const localIndices = [];
+
+  for (let i = 0; i < inputs.length; i++) {
+    const item = String(inputs[i]);
+    if (/^https?:\/\//i.test(item)) {
+      urls[i] = item;
+    } else {
+      localIndices.push(i);
+      localDataUrls.push(imageInputToPayload(item));
+    }
+  }
+
+  if (localDataUrls.length > 0) {
+    const up = await apiRequest(cfg, "POST", "/mj/submit/upload-discord-images", {
+      base64Array: localDataUrls,
+    });
+    if (!up || up.code !== 1 || !Array.isArray(up.result)) {
+      throw new Error(`upload-discord-images failed: ${JSON.stringify(up)}`);
+    }
+    for (let j = 0; j < localIndices.length; j++) {
+      urls[localIndices[j]] = up.result[j];
+    }
+  }
+  return urls;
+}
+
+async function runSingleImagine(cfg, prompt, refs, speedPrefix, outRoot, allowProfileRetry = true) {
   const body = { prompt };
   if (refs.length > 0) {
     body.base64Array = refs.map(imageInputToPayload);
@@ -470,8 +519,24 @@ async function runSingleImagine(cfg, prompt, refs, speedPrefix, outRoot) {
   }
   const taskId = String(sub.result);
   console.error(`Submitted imagine taskId=${taskId} (${speedPrefix || "/mj"})`);
-  const task = await pollTask(cfg, taskId);
-  return materializeTaskOutputs(cfg, task, outRoot);
+  try {
+    const task = await pollTask(cfg, taskId);
+    return await materializeTaskOutputs(cfg, task, outRoot);
+  } catch (err) {
+    const msg = String(err.message || "");
+    const badMatches = [...msg.matchAll(/Member\s+`+([A-Za-z0-9_-]+)`+\s+not\s+found|Member\s+([A-Za-z0-9_-]+)\s+not\s+found/gi)];
+    const badCodes = badMatches.map((m) => m[1] || m[2]).filter(Boolean);
+    if (allowProfileRetry && badCodes.length > 0) {
+      const { prompt: healedPrompt } = stripInvalidProfileCodes(prompt, badCodes);
+      if (healedPrompt !== prompt) {
+        console.error(
+          `[v8.2-self-heal] Retired --profile code(s) [${badCodes.join(", ")}] detected; stripping and retrying once...`,
+        );
+        return await runSingleImagine(cfg, healedPrompt, refs, speedPrefix, outRoot, false);
+      }
+    }
+    throw err;
+  }
 }
 
 async function cmdImagine(cfg, flags) {
@@ -487,12 +552,20 @@ async function cmdImagine(cfg, flags) {
     rawSpeed === "auto" ? (totalJobs >= 2 ? "relax" : "fast") : rawSpeed;
   const speedPrefix = speedPrefixFor(resolvedSpeed);
   const refs = toArray(flags.ref);
+  const srefs = toArray(flags.sref);
   const outRoot = path.resolve(String(flags.out || "./mj-outputs"));
+
+  let srefSuffix = "";
+  if (srefs.length > 0) {
+    const srefUrls = await uploadToDiscordUrls(cfg, srefs);
+    srefSuffix = ` --sref ${srefUrls.join(" ")}`;
+  }
 
   const jobs = [];
   const allWarnings = [];
   for (const rp of rawPrompts) {
-    const { prompt, warnings } = sanitizePromptV82(rp);
+    const withSref = srefSuffix ? `${rp} ${srefSuffix}` : rp;
+    const { prompt, warnings } = sanitizePromptV82(withSref);
     allWarnings.push(...warnings);
     for (let k = 0; k < countPerPrompt; k++) {
       jobs.push(() => runSingleImagine(cfg, prompt, refs, speedPrefix, outRoot));
@@ -590,25 +663,55 @@ async function cmdEdit(cfg, flags) {
   const imgInput = flags.image;
   const rawPrompt = flags.prompt;
   if (!imgInput || !rawPrompt) {
-    throw new Error("Usage: edit --image <pathOrUrl> --prompt <instruction> [--mode edit|retexture]");
+    throw new Error("Usage: edit --image <pathOrUrl> --prompt <instructionOrV82Prompt> [--mode edit|retexture]");
   }
   const endpoint = String(flags.mode || "edit").toLowerCase() === "retexture" ? "retexture" : "edit";
   const speedPrefix = speedPrefixFor(flags.speed || "fast");
   const outRoot = path.resolve(String(flags.out || "./mj-outputs"));
 
-  // Clean accidental legacy flags without forcing --v suffix if server handles edit natively, or keep clean instruction
   const cleanPrompt = String(rawPrompt)
     .replace(/--(?:cref|oref)\s+\S+|--(?:cw|ow)\s+\d+/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 
+  const imgPayload = imageInputToPayload(String(imgInput));
   const sub = await apiRequest(cfg, "POST", `${speedPrefix}/mj/submit/${endpoint}`, {
-    image: imageInputToPayload(String(imgInput)),
+    image: imgPayload,
     prompt: cleanPrompt,
   });
+
+  // Note: /mj/submit/edit and /retexture in midjourney-proxy only route to Official/YouChuan accounts.
+  // When running on pure Discord channel accounts, seamlessly fall back to high-weight V8.2 image-guided imagine!
   if (!sub || ![1, 22].includes(sub.code)) {
+    const desc = String(sub?.description || "");
+    if (sub?.code === 24 || desc.includes("无可用的账号") || desc.includes("不支持编辑")) {
+      const iw = endpoint === "retexture" ? "--iw 2" : "--iw 1.5";
+      const hasIw = /--iw\s+[0-9.]+/i.test(cleanPrompt);
+      const { prompt: v82Prompt } = sanitizePromptV82(
+        hasIw ? cleanPrompt : `${cleanPrompt} ${iw}`,
+      );
+      console.error(
+        `[discord-fallback] '/${endpoint}' requires Official/YouChuan plugin; routing via Discord image-guided V8.2 imagine (${iw})...`,
+      );
+      const res = await runSingleImagine(
+        cfg,
+        v82Prompt,
+        [String(imgInput)],
+        speedPrefix,
+        outRoot,
+      );
+      console.log(
+        JSON.stringify(
+          { ok: true, mode: `${endpoint}-discord-ref`, result: res },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     throw new Error(`Submit ${endpoint} failed: ${JSON.stringify(sub)}`);
   }
+
   const taskId = String(sub.result);
   console.error(`Submitted ${endpoint} taskId=${taskId}`);
   const task = await pollTask(cfg, taskId);
