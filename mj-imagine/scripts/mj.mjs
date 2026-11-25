@@ -28,7 +28,7 @@ function loadConfig() {
     process.env.MJ_PROXY_URL ||
     fileCfg.baseUrl ||
     fileCfg.publicBaseUrl ||
-    "http://127.0.0.1:8086"
+    "http://127.0.0.1:14002"
   ).replace(/\/+$/, "");
   const publicBaseUrl = (
     process.env.MJ_PUBLIC_BASE_URL ||
